@@ -126,9 +126,15 @@
     transition: opacity 0.15s;
   }
   .sidebar-btn:hover { opacity: 0.85; }
-  .btn-clear { background: #3a3aaa; color: #fff; }
-  .btn-guess { background: #1fa854; color: #fff; }
+  .btn-clear    { background: #3a3aaa; color: #fff; }
+  .btn-guess    { background: #1fa854; color: #fff; }
   .btn-guess.thinking { background: #444; }
+  .btn-undo     { background: #2a2a3a; color: #ccc; }
+  .btn-redo     { background: #2a2a3a; color: #ccc; }
+  .btn-download { background: #7c6af7; color: #fff; }
+  .btn-undo:disabled, .btn-redo:disabled { opacity: 0.3; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 4px; }
+  .btn-row .sidebar-btn { flex: 1; padding: 7px 2px; font-size: 0.6rem; }
 
   /* ── Canvas Area ── */
   .canvas-wrap {
@@ -290,8 +296,13 @@
     <div id="palette"></div>
     <div class="sidebar-label" style="margin-top:8px">Brush</div>
     <div id="brushes"></div>
-    <button class="sidebar-btn btn-clear" style="margin-top:10px" onclick="clearCanvas()">CLEAR</button>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="sidebar-btn btn-undo" id="undoBtn" onclick="undo()" disabled title="Undo (Ctrl+Z)">&#8617; Undo</button>
+      <button class="sidebar-btn btn-redo" id="redoBtn" onclick="redo()" disabled title="Redo (Ctrl+Y)">&#8618; Redo</button>
+    </div>
+    <button class="sidebar-btn btn-clear" onclick="clearCanvas()">CLEAR</button>
     <button class="sidebar-btn btn-guess" id="guessBtn" onclick="triggerGuess()">GUESS!</button>
+    <button class="sidebar-btn btn-download" onclick="downloadPNG()" title="Download as PNG">&#11015; Save PNG</button>
   </div>
 
   <!-- Canvas -->
@@ -347,6 +358,11 @@ let idleTimer     = null;
 let lastActionT   = 0;
 let prevGestPt    = null;
 let history       = [];
+
+// ─── UNDO / REDO STATE ────────────────────────────────────────────────────────
+const MAX_HISTORY = 40;
+let undoStack = [];   // array of ImageData snapshots
+let redoStack = [];
 
 // ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
 const drawCanvas    = document.getElementById('drawCanvas');
@@ -423,6 +439,59 @@ function drawStroke(x1, y1, x2, y2) {
   ctx.fillStyle = col || 'rgba(0,0,0,1)';
   ctx.fill();
   ctx.globalCompositeOperation = 'source-over';
+  scheduleSnapshot();
+}
+
+// Debounce snapshot saves so we don't save 60x per stroke
+let _snapTimer = null;
+function scheduleSnapshot() {
+  clearTimeout(_snapTimer);
+  _snapTimer = setTimeout(saveSnapshot, 80);
+}
+
+function saveSnapshot() {
+  undoStack.push(ctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height));
+  if (undoStack.length > MAX_HISTORY) undoStack.shift();
+  redoStack = [];   // new stroke clears redo
+  updateUndoRedoBtns();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  // Push current state to redo
+  redoStack.push(ctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height));
+  const snap = undoStack.pop();
+  ctx.putImageData(snap, 0, 0);
+  updateUndoRedoBtns();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(ctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height));
+  const snap = redoStack.pop();
+  ctx.putImageData(snap, 0, 0);
+  updateUndoRedoBtns();
+}
+
+function updateUndoRedoBtns() {
+  document.getElementById('undoBtn').disabled = undoStack.length === 0;
+  document.getElementById('redoBtn').disabled = redoStack.length === 0;
+}
+
+// ─── DOWNLOAD PNG ─────────────────────────────────────────────────────────────
+function downloadPNG() {
+  const tmp   = document.createElement('canvas');
+  tmp.width   = drawCanvas.width;
+  tmp.height  = drawCanvas.height;
+  const tctx  = tmp.getContext('2d');
+  tctx.fillStyle = '#ffffff';
+  tctx.fillRect(0, 0, tmp.width, tmp.height);
+  tctx.drawImage(drawCanvas, 0, 0);
+
+  const link    = document.createElement('a');
+  link.download = 'my-drawing.png';
+  link.href     = tmp.toDataURL('image/png');
+  link.click();
 }
 
 // ─── MOUSE / TOUCH MODE ───────────────────────────────────────────────────────
@@ -547,9 +616,12 @@ function addHistory(data) {
 }
 
 function clearCanvas() {
+  saveSnapshot();   // save before clearing so user can undo a clear
   ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
   clearTimeout(idleTimer);
-  lastDrawTime = 0;  // reset so auto-guess won't fire on blank canvas
+  lastDrawTime = 0;
+  redoStack = [];
+  updateUndoRedoBtns();
 }
 
 // ─── MODE SWITCHING ───────────────────────────────────────────────────────────
@@ -836,13 +908,20 @@ function roundRect(ctx, x, y, w, h, r) {
 // ─── HINT BAR ─────────────────────────────────────────────────────────────────
 const hintBar = document.createElement('div');
 hintBar.className = 'hint-bar';
-hintBar.innerHTML = '☝ One finger = Draw &nbsp;|&nbsp; ✌ Two fingers = Select &nbsp;|&nbsp; Auto-guesses 2.5s after you stop &nbsp;|&nbsp; <kbd style="background:#333;padding:1px 5px;border-radius:4px">G</kbd> Guess &nbsp; <kbd style="background:#333;padding:1px 5px;border-radius:4px">C</kbd> Clear';
+hintBar.innerHTML = '&#9759; Draw &nbsp;|&nbsp; &#9996; Select &nbsp;|&nbsp; <kbd style="background:#333;padding:1px 5px;border-radius:4px">G</kbd> Guess &nbsp;<kbd style="background:#333;padding:1px 5px;border-radius:4px">C</kbd> Clear &nbsp;<kbd style="background:#333;padding:1px 5px;border-radius:4px">Ctrl+Z</kbd> Undo &nbsp;<kbd style="background:#333;padding:1px 5px;border-radius:4px">Ctrl+Y</kbd> Redo &nbsp;<kbd style="background:#333;padding:1px 5px;border-radius:4px">Ctrl+S</kbd> Save';
 canvasWrap.after(hintBar);
 
 // ─── KEYBOARD SHORTCUTS ───────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   // Don't fire if user is typing in an input field
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  // Ctrl+Z = Undo, Ctrl+Y or Ctrl+Shift+Z = Redo, Ctrl+S = Save PNG
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); redo(); return; }
+    if (e.key === 's') { e.preventDefault(); downloadPNG(); return; }
+  }
 
   switch(e.key.toLowerCase()) {
     case 'g':
