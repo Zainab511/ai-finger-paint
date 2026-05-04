@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>🎨 AI Finger Paint</title>
+<style>
+  :root {
+    --bg: #0d0d14;
+    --surface: #16161f;
+    --border: #2a2a3a;
+    --accent: #7c6af7;
+    --accent2: #f76a8a;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --green: #3de886;
+    --yellow: #f7e26a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  header {
+    width: 100%;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.5px; }
+  header span { font-size: 0.75rem; color: var(--muted); }
+
+  .mode-tabs {
+    display: flex;
+    gap: 8px;
+    margin: 18px 0 10px;
+  }
+  .mode-tab {
+    padding: 8px 22px;
+    border-radius: 999px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .mode-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .workspace {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 0 16px 20px;
+    width: 100%;
+    max-width: 1100px;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 70px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 4px;
+    flex-shrink: 0;
+  }
+  .sidebar-label {
+    font-size: 0.6rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+  }
+  .swatch {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s;
+    position: relative;
+  }
+  .swatch:hover { transform: scale(1.1); }
+  .swatch.active { border-color: #fff; transform: scale(1.12); }
+  .swatch.eraser {
+    background: repeating-conic-gradient(#444 0% 25%, #222 0% 50%) 0 0 / 12px 12px;
+  }
+  .brush-btn {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s;
+  }
+  .brush-btn.active { border-color: #fff; }
+  .brush-dot { background: #fff; border-radius: 50%; }
+  .sidebar-btn {
+    width: 46px;
+    padding: 7px 4px;
+    border-radius: 10px;
+    border: none;
+    font-size: 0.65rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: opacity 0.15s;
+  }
+  .sidebar-btn:hover { opacity: 0.85; }
+  .btn-clear { background: #3a3aaa; color: #fff; }
+  .btn-guess { background: #1fa854; color: #fff; }
+  .btn-guess.thinking { background: #444; }
+
+  /* ── Canvas Area ── */
+  .canvas-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+  #drawCanvas {
+    display: block;
+    border-radius: 14px;
+    border: 1.5px solid var(--border);
+    background: #fff;
+    cursor: crosshair;
+    touch-action: none;
+    width: 100%;
+  }
+  #videoEl {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    border-radius: 14px;
+    object-fit: cover;
+    opacity: 0;
+    pointer-events: none;
+    transform: scaleX(-1);  /* mirror so it looks like front camera */
+  }
+  #gestureCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    border-radius: 14px;
+    pointer-events: none;
+  }
+  .mode-badge {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    backdrop-filter: blur(6px);
+  }
+  .hint-bar {
+    margin-top: 8px;
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  /* ── Result Panel ── */
+  #resultPanel {
+    width: 200px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 14px;
+    text-align: center;
+    min-height: 130px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: border-color 0.3s;
+  }
+  .result-card.active { border-color: var(--accent); }
+  .result-emoji { font-size: 2.8rem; line-height: 1; }
+  .result-label { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+  .result-hype  { font-size: 0.78rem; color: var(--green); }
+  .result-reaction { font-size: 1.4rem; }
+  .result-placeholder { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+
+  .history-title {
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 0 4px;
+  }
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .history-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+  }
+  .history-item span:first-child { font-size: 1.2rem; }
+
+  /* ── Thinking spinner ── */
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Gesture overlay ── */
+  .gesture-indicator {
+    position: absolute;
+    bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(124,106,247,0.85);
+    color: #fff;
+    font-size: 0.75rem;
+    padding: 5px 14px;
+    border-radius: 999px;
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .gesture-indicator.show { opacity: 1; }
+
+  @media (max-width: 700px) {
+    .workspace { flex-direction: column; align-items: center; }
+    .sidebar { flex-direction: row; flex-wrap: wrap; width: 100%; justify-content: center; }
+    #resultPanel { width: 100%; flex-direction: row; flex-wrap: wrap; }
+    .result-card { flex: 1; min-width: 140px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎨 AI Finger Paint</h1>
+  <span>Powered by Groq Llama 4 Scout Vision</span>
+</header>
+
+<div class="mode-tabs">
+  <button class="mode-tab active" id="tabMouse" onclick="setMode('mouse')">🖱️ Mouse / Touch</button>
+  <button class="mode-tab" id="tabGesture" onclick="setMode('gesture')">✋ Hand Gesture</button>
+</div>
+
+<div class="workspace">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-label">Color</div>
+    <div id="palette"></div>
+    <div class="sidebar-label" style="margin-top:8px">Brush</div>
+    <div id="brushes"></div>
+    <button class="sidebar-btn btn-clear" style="margin-top:10px" onclick="clearCanvas()">CLEAR</button>
+    <button class="sidebar-btn btn-guess" id="guessBtn" onclick="triggerGuess()">GUESS!</button>
+  </div>
+
+  <!-- Canvas -->
+  <div class="canvas-wrap" id="canvasWrap">
+    <video id="videoEl" autoplay playsinline muted></video>
+    <canvas id="drawCanvas"></canvas>
+    <canvas id="gestureCanvas"></canvas>
+    <div class="mode-badge" id="modeBadge">🖱️ Mouse Mode</div>
+    <div class="gesture-indicator" id="gestureInd"></div>
+  </div>
+
+  <!-- Result panel -->
+  <div id="resultPanel">
+    <div class="result-card" id="resultCard">
+      <div class="result-placeholder">Draw something!<br/>AI will guess it 🤖</div>
+    </div>
+    <div class="history-title">History</div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+
+</div>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const API_URL      = '/guess';
+const IDLE_MS      = 2500;   // auto-guess after drawing stops
+const COOLDOWN_MS  = 600;    // UI action debounce
+
+const COLORS = [
+  { name:'Red',    hex:'#ff2d2d', bgr:[0,0,255]   },
+  { name:'Orange', hex:'#ff8c00', bgr:[0,140,255]  },
+  { name:'Yellow', hex:'#ffe000', bgr:[0,220,255]  },
+  { name:'Green',  hex:'#14c85a', bgr:[0,200,80]   },
+  { name:'Blue',   hex:'#1e90ff', bgr:[255,80,0]   },
+  { name:'Purple', hex:'#c850ff', bgr:[200,0,200]  },
+  { name:'White',  hex:'#ffffff', bgr:[255,255,255]},
+  { name:'Eraser', hex:null,      bgr:null          },
+];
+const BRUSHES = [3, 7, 13, 22];
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let mode          = 'mouse';   // 'mouse' | 'gesture'
+let colorIdx      = 0;
+let brushIdx      = 1;
+let isThinking    = false;
+let lastDrawTime  = 0;
+let idleTimer     = null;
+let lastActionT   = 0;
+let prevGestPt    = null;
+let history       = [];
+
+// ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
+const drawCanvas    = document.getElementById('drawCanvas');
+const ctx           = drawCanvas.getContext('2d');
+const gestureCanvas = document.getElementById('gestureCanvas');
+const gctx          = gestureCanvas.getContext('2d');
+const videoEl       = document.getElementById('videoEl');
+const canvasWrap    = document.getElementById('canvasWrap');
+
+function resizeCanvas() {
+  const w = canvasWrap.clientWidth;
+  const h = Math.round(w * 0.56);  // 16:9 ish
+  if (drawCanvas.width === w && drawCanvas.height === h) return;
+  const snap = ctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+  drawCanvas.width  = gestureCanvas.width  = w;
+  drawCanvas.height = gestureCanvas.height = h;
+  ctx.putImageData(snap, 0, 0);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ─── PALETTE UI ───────────────────────────────────────────────────────────────
+const palette = document.getElementById('palette');
+const brushesEl = document.getElementById('brushes');
+
+COLORS.forEach((c, i) => {
+  const el = document.createElement('div');
+  el.className = 'swatch' + (i===0?' active':'') + (c.name==='Eraser'?' eraser':'');
+  if (c.hex) el.style.background = c.hex;
+  el.title = c.name;
+  el.onclick = () => { colorIdx = i; updatePalette(); };
+  palette.appendChild(el);
+});
+
+BRUSHES.forEach((sz, i) => {
+  const el = document.createElement('div');
+  el.className = 'brush-btn' + (i===1?' active':'');
+  const dot = document.createElement('div');
+  dot.className = 'brush-dot';
+  dot.style.width = dot.style.height = (sz+2) + 'px';
+  el.appendChild(dot);
+  el.onclick = () => { brushIdx = i; updateBrushes(); };
+  brushesEl.appendChild(el);
+});
+
+function updatePalette() {
+  [...palette.children].forEach((el,i) => el.classList.toggle('active', i===colorIdx));
+}
+function updateBrushes() {
+  [...brushesEl.children].forEach((el,i) => el.classList.toggle('active', i===brushIdx));
+}
+
+// ─── DRAWING ──────────────────────────────────────────────────────────────────
+function getColor() {
+  const c = COLORS[colorIdx];
+  return c.name === 'Eraser' ? null : c.hex;
+}
+function getBrush() { return BRUSHES[brushIdx]; }
+
+function drawStroke(x1, y1, x2, y2) {
+  const col = getColor();
+  const r   = getBrush();
+  ctx.globalCompositeOperation = col ? 'source-over' : 'destination-out';
+  ctx.strokeStyle = col || 'rgba(0,0,0,1)';
+  ctx.lineWidth   = r * 2;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x2, y2, r, 0, Math.PI*2);
+  ctx.fillStyle = col || 'rgba(0,0,0,1)';
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// ─── MOUSE / TOUCH MODE ───────────────────────────────────────────────────────
+let mouseDown = false;
+let lastMousePt = null;
+
+function ptFromEvent(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  const src  = e.touches ? e.touches[0] : e;
+  return {
+    x: (src.clientX - rect.left) * (drawCanvas.width  / rect.width),
+    y: (src.clientY - rect.top)  * (drawCanvas.height / rect.height),
+  };
+}
+
+drawCanvas.addEventListener('mousedown',  e => { if(mode!=='mouse') return; mouseDown=true; lastMousePt=ptFromEvent(e); onDraw(e); });
+drawCanvas.addEventListener('mousemove',  e => { if(mode!=='mouse'||!mouseDown) return; onDraw(e); });
+drawCanvas.addEventListener('mouseup',    () => { mouseDown=false; lastMousePt=null; scheduleAutoGuess(); });
+drawCanvas.addEventListener('mouseleave', () => { mouseDown=false; lastMousePt=null; });
+drawCanvas.addEventListener('touchstart', e => { e.preventDefault(); if(mode!=='mouse') return; mouseDown=true; lastMousePt=ptFromEvent(e); onDraw(e); }, {passive:false});
+drawCanvas.addEventListener('touchmove',  e => { e.preventDefault(); if(mode!=='mouse'||!mouseDown) return; onDraw(e); }, {passive:false});
+drawCanvas.addEventListener('touchend',   () => { mouseDown=false; lastMousePt=null; scheduleAutoGuess(); });
+
+function onDraw(e) {
+  const pt = ptFromEvent(e);
+  if (lastMousePt) drawStroke(lastMousePt.x, lastMousePt.y, pt.x, pt.y);
+  lastMousePt   = pt;
+  lastDrawTime  = Date.now();
+  clearTimeout(idleTimer);
+}
+
+// ─── AUTO GUESS ───────────────────────────────────────────────────────────────
+function scheduleAutoGuess() {
+  clearTimeout(idleTimer);
+  // Only auto-guess if user has actually drawn something this session
+  if (lastDrawTime === 0) return;
+  idleTimer = setTimeout(() => {
+    if (!isThinking && hasDrawing()) triggerGuess();
+  }, IDLE_MS);
+}
+
+function hasDrawing() {
+  const d = ctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data;
+  let darkPixels = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    // Count pixels that are meaningfully non-white
+    if (d[i] < 240 || d[i+1] < 240 || d[i+2] < 240) {
+      darkPixels++;
+      if (darkPixels > 300) return true;  // need at least 300 dark pixels
+    }
+  }
+  return false;
+}
+
+// ─── CANVAS → BASE64 ─────────────────────────────────────────────────────────
+function canvasToBase64() {
+  // White background composite
+  const tmp    = document.createElement('canvas');
+  tmp.width    = drawCanvas.width;
+  tmp.height   = drawCanvas.height;
+  const tctx   = tmp.getContext('2d');
+  tctx.fillStyle = '#ffffff';
+  tctx.fillRect(0, 0, tmp.width, tmp.height);
+  tctx.drawImage(drawCanvas, 0, 0);
+  const dataUrl = tmp.toDataURL('image/jpeg', 0.9);
+  return dataUrl.split(',')[1];
+}
+
+// ─── GUESS ────────────────────────────────────────────────────────────────────
+const guessBtn   = document.getElementById('guessBtn');
+const resultCard = document.getElementById('resultCard');
+
+async function triggerGuess() {
+  if (isThinking || !hasDrawing()) return;
+  isThinking = true;
+  guessBtn.classList.add('thinking');
+  guessBtn.textContent = '...';
+
+  resultCard.classList.remove('active');
+  resultCard.innerHTML = '<div class="spinner"></div><div style="font-size:0.8rem;color:var(--muted);margin-top:8px">Groq is thinking...</div>';
+
+  const b64 = canvasToBase64();
+  try {
+    const res  = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_b64: b64 })
+    });
+    const data = await res.json();
+    showResult(data);
+  } catch(err) {
+    showResult({ label:'error', emoji:'😵', reaction:'🔧', hype:'Check your connection!' });
+  } finally {
+    isThinking = false;
+    guessBtn.classList.remove('thinking');
+    guessBtn.textContent = 'GUESS!';
+  }
+}
+
+function showResult(data) {
+  resultCard.classList.add('active');
+  resultCard.innerHTML = `
+    <div class="result-emoji">${data.emoji}</div>
+    <div class="result-label">${data.label.toUpperCase()}</div>
+    <div class="result-hype">${data.hype}</div>
+    <div class="result-reaction">${data.reaction}</div>
+  `;
+  addHistory(data);
+}
+
+function addHistory(data) {
+  history.unshift(data);
+  if (history.length > 8) history.pop();
+  const list = document.getElementById('historyList');
+  list.innerHTML = history.map(h => `
+    <div class="history-item">
+      <span>${h.emoji}</span>
+      <span>${h.label}</span>
+      <span style="margin-left:auto;font-size:1rem">${h.reaction}</span>
+    </div>
+  `).join('');
+}
+
+function clearCanvas() {
+  ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  clearTimeout(idleTimer);
+  lastDrawTime = 0;  // reset so auto-guess won't fire on blank canvas
+}
+
+// ─── MODE SWITCHING ───────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById('tabMouse').classList.toggle('active', m==='mouse');
+  document.getElementById('tabGesture').classList.toggle('active', m==='gesture');
+  document.getElementById('modeBadge').textContent = m==='mouse' ? '🖱️ Mouse Mode' : '✋ Gesture Mode';
+  document.querySelector('.hint-bar') && (document.querySelector('.hint-bar').style.display = m==='mouse'?'block':'none');
+
+  if (m === 'gesture') {
+    startCamera();
+    videoEl.style.opacity = '0.25';
+  } else {
+    videoEl.style.opacity = '0';
+    stopCamera();
+    prevGestPt = null;
+  }
+}
+
+// ─── MEDIAPIPE HANDS ──────────────────────────────────────────────────────────
+let mpHands = null;
+let mpCamera = null;
+
+async function startCamera() {
+  if (mpHands) return;
+
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  videoEl.srcObject = stream;
+
+  mpHands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+  mpHands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence:  0.7,
+  });
+  mpHands.onResults(onHandResults);
+
+  mpCamera = new Camera(videoEl, {
+    onFrame: async () => { await mpHands.send({ image: videoEl }); },
+    width: drawCanvas.width,
+    height: drawCanvas.height,
+  });
+  mpCamera.start();
+}
+
+function stopCamera() {
+  if (mpCamera) { mpCamera.stop(); mpCamera = null; }
+  if (mpHands)  { mpHands.close(); mpHands  = null; }
+  if (videoEl.srcObject) {
+    videoEl.srcObject.getTracks().forEach(t => t.stop());
+    videoEl.srcObject = null;
+  }
+  gctx.clearRect(0, 0, gestureCanvas.width, gestureCanvas.height);
+}
+
+// ─── HAND RESULTS ─────────────────────────────────────────────────────────────
+const gestureInd = document.getElementById('gestureInd');
+
+function fingersUp(lm) {
+  const up = [lm[4].x < lm[3].x];
+  const pairs = [[8,6],[12,10],[16,14],[20,18]];
+  pairs.forEach(([tip,pip]) => up.push(lm[tip].y < lm[pip].y));
+  return up;
+}
+
+function onHandResults(results) {
+  gctx.clearRect(0, 0, gestureCanvas.width, gestureCanvas.height);
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    prevGestPt = null;
+    gestureInd.classList.remove('show');
+    return;
+  }
+
+  const lm = results.multiHandLandmarks[0];
+  const up = fingersUp(lm);
+  const isDrawing  = up[1] && !up[2];
+  const isSelecting = up[1] && up[2];
+
+  const cw = gestureCanvas.width;
+  const ch = gestureCanvas.height;
+
+  // Index fingertip in canvas space (mirrored)
+  const ix = (1 - lm[8].x) * cw;
+  const iy = lm[8].y * ch;
+
+  // Draw fingertip cursor
+  gctx.beginPath();
+  gctx.arc(ix, iy, BRUSHES[brushIdx]+4, 0, Math.PI*2);
+  gctx.strokeStyle = isDrawing ? (COLORS[colorIdx].hex || '#fff') : '#7c6af7';
+  gctx.lineWidth = 2;
+  gctx.stroke();
+  gctx.beginPath();
+  gctx.arc(ix, iy, 3, 0, Math.PI*2);
+  gctx.fillStyle = '#fff';
+  gctx.fill();
+
+  const now = Date.now();
+
+  if (isDrawing) {
+    gestureInd.textContent = '☝ Drawing';
+    gestureInd.classList.add('show');
+    if (prevGestPt) drawStroke(prevGestPt.x, prevGestPt.y, ix, iy);
+    prevGestPt   = { x: ix, y: iy };
+    lastDrawTime = now;
+    clearTimeout(idleTimer);
+
+  } else if (isSelecting) {
+    gestureInd.textContent = '✌ Point at a button to select';
+    gestureInd.classList.add('show');
+    prevGestPt = null;
+
+    // Draw the on-canvas menu panel
+    drawGestureMenu(ix, iy);
+
+    if (now - lastActionT > COOLDOWN_MS) {
+      handleGestureSelect(ix, iy);
+      lastActionT = now;
+    }
+    scheduleAutoGuess();
+
+  } else {
+    gestureInd.classList.remove('show');
+    prevGestPt = null;
+    scheduleAutoGuess();
+  }
+}
+
+// ─── ON-CANVAS GESTURE MENU ──────────────────────────────────────────────────
+// When two fingers are up, draw a menu panel directly ON the gestureCanvas.
+// Buttons are defined in canvas-pixel space so hit detection is trivial.
+
+const GMENU = {
+  x: 10, y: 10,       // top-left of the panel
+  sw: 44, sh: 44,     // swatch size
+  gap: 6,             // gap between swatches
+  cols: 4,            // colors per row
+};
+
+function gestureMenuRects() {
+  // Returns array of { type, index, x, y, w, h }
+  const rects = [];
+  const { x, y, sw, sh, gap, cols } = GMENU;
+
+  // Color swatches — 2 rows of 4
+  COLORS.forEach((c, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    rects.push({
+      type: 'color', index: i,
+      x: x + col * (sw + gap),
+      y: y + row * (sh + gap),
+      w: sw, h: sh,
+    });
+  });
+
+  // Brush sizes — 1 row of 4, below colors
+  const brushY = y + 2 * (sh + gap) + 14;
+  BRUSHES.forEach((_, i) => {
+    rects.push({
+      type: 'brush', index: i,
+      x: x + i * (sw + gap),
+      y: brushY,
+      w: sw, h: sh,
+    });
+  });
+
+  // CLEAR and GUESS buttons
+  const btnY = brushY + sh + gap + 10;
+  rects.push({ type: 'clear', index: -1, x: x,            y: btnY, w: 90, h: 36 });
+  rects.push({ type: 'guess', index: -1, x: x + 90 + gap, y: btnY, w: 90, h: 36 });
+
+  return rects;
+}
+
+function drawGestureMenu(ix, iy) {
+  const rects = gestureMenuRects();
+
+  // Panel background
+  const allX2 = Math.max(...rects.map(r => r.x + r.w));
+  const allY2 = Math.max(...rects.map(r => r.y + r.h));
+  gctx.fillStyle = 'rgba(15,15,25,0.88)';
+  roundRect(gctx, GMENU.x - 8, GMENU.y - 8, allX2 - GMENU.x + 16, allY2 - GMENU.y + 16, 12);
+  gctx.fill();
+  gctx.strokeStyle = 'rgba(124,106,247,0.6)';
+  gctx.lineWidth = 1.5;
+  gctx.stroke();
+
+  rects.forEach(r => {
+    const hovered = ix >= r.x && ix <= r.x+r.w && iy >= r.y && iy <= r.y+r.h;
+
+    if (r.type === 'color') {
+      const c = COLORS[r.index];
+      if (c.name === 'Eraser') {
+        // Checkerboard
+        gctx.save();
+        gctx.beginPath(); gctx.rect(r.x, r.y, r.w, r.h); gctx.clip();
+        for (let row=0; row<r.h; row+=10)
+          for (let col=0; col<r.w; col+=10) {
+            gctx.fillStyle = (Math.floor(row/10)+Math.floor(col/10))%2===0 ? '#555':'#222';
+            gctx.fillRect(r.x+col, r.y+row, 10, 10);
+          }
+        gctx.restore();
+      } else {
+        gctx.fillStyle = c.hex;
+        roundRect(gctx, r.x, r.y, r.w, r.h, 8);
+        gctx.fill();
+      }
+      // Active / hovered border
+      const isActive = r.index === colorIdx;
+      gctx.strokeStyle = isActive ? '#fff' : hovered ? '#aaa' : 'rgba(255,255,255,0.15)';
+      gctx.lineWidth = isActive ? 2.5 : 1.5;
+      roundRect(gctx, r.x, r.y, r.w, r.h, 8);
+      gctx.stroke();
+
+    } else if (r.type === 'brush') {
+      gctx.fillStyle = r.index === brushIdx ? '#444' : '#222';
+      roundRect(gctx, r.x, r.y, r.w, r.h, 8);
+      gctx.fill();
+      gctx.strokeStyle = r.index === brushIdx ? '#fff' : hovered ? '#aaa' : 'rgba(255,255,255,0.15)';
+      gctx.lineWidth = 1.5;
+      roundRect(gctx, r.x, r.y, r.w, r.h, 8);
+      gctx.stroke();
+      // Dot
+      const dotR = Math.max(2, BRUSHES[r.index] / 2);
+      gctx.beginPath();
+      gctx.arc(r.x + r.w/2, r.y + r.h/2, dotR, 0, Math.PI*2);
+      gctx.fillStyle = COLORS[colorIdx].hex || '#fff';
+      gctx.fill();
+
+    } else {
+      // CLEAR / GUESS buttons
+      gctx.fillStyle = hovered
+        ? (r.type==='clear' ? '#5555dd' : '#22bb66')
+        : (r.type==='clear' ? '#3333aa' : '#1a7a44');
+      roundRect(gctx, r.x, r.y, r.w, r.h, 8);
+      gctx.fill();
+      gctx.fillStyle = '#fff';
+      gctx.font = 'bold 13px Segoe UI, sans-serif';
+      gctx.textAlign = 'center';
+      gctx.textBaseline = 'middle';
+      gctx.fillText(r.type === 'clear' ? 'CLEAR' : 'GUESS!', r.x + r.w/2, r.y + r.h/2);
+    }
+  });
+}
+
+function handleGestureSelect(ix, iy) {
+  const rects = gestureMenuRects();
+  for (const r of rects) {
+    if (ix >= r.x && ix <= r.x+r.w && iy >= r.y && iy <= r.y+r.h) {
+      if (r.type === 'color') {
+        colorIdx = r.index;
+        updatePalette();
+      } else if (r.type === 'brush') {
+        brushIdx = r.index;
+        updateBrushes();
+      } else if (r.type === 'clear') {
+        clearCanvas();
+      } else if (r.type === 'guess' && !isThinking) {
+        triggerGuess();
+      }
+      break;
+    }
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// ─── HINT BAR ─────────────────────────────────────────────────────────────────
+const hintBar = document.createElement('div');
+hintBar.className = 'hint-bar';
+hintBar.innerHTML = '☝ One finger = Draw &nbsp;|&nbsp; ✌ Two fingers = Select &nbsp;|&nbsp; Auto-guesses 2.5s after you stop &nbsp;|&nbsp; <kbd style="background:#333;padding:1px 5px;border-radius:4px">G</kbd> Guess &nbsp; <kbd style="background:#333;padding:1px 5px;border-radius:4px">C</kbd> Clear';
+canvasWrap.after(hintBar);
+
+// ─── KEYBOARD SHORTCUTS ───────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Don't fire if user is typing in an input field
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  switch(e.key.toLowerCase()) {
+    case 'g':
+      if (!isThinking) triggerGuess();
+      break;
+    case 'c':
+      clearCanvas();
+      break;
+  }
+});
+</script>
+</body>
+</html>
