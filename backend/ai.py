@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL   = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+GROQ_MODEL   = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 
 PROMPT = (
     "This is a finger-drawn sketch on a white background. "
